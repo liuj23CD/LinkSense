@@ -314,6 +314,46 @@ services:
       start_period: 5s
     logging: *default-logging
 
+  aistore:
+    image: ${AISTORE_IMAGE:-nvidia/aistore:v5.2.0}
+    restart: unless-stopped
+    mem_limit: ${LINKSENSE_MINIO_MEMORY_MB:-0}m
+    command: ["proxy", "--ais-listen-port=8080", "--log-level=info"]
+    environment:
+      AIS_LOG_LEVEL: ${AISTORE_LOG_LEVEL:-info}
+    volumes:
+      - aistore-data:/var/lib/aistore
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    logging: *default-logging
+
+  aistore-init:
+    image: busybox:1.37
+    restart: "no"
+    depends_on:
+      aistore:
+        condition: service_healthy
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_KNOWLEDGE_BUCKET: ${MINIO_KNOWLEDGE_BUCKET}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        test -n "$$MINIO_ACCESS_KEY"
+        test -n "$$MINIO_SECRET_KEY"
+        while ! curl -s http://aistore:8080/v1/health >/dev/null 2>&1; do
+            sleep 2
+        done
+        curl -s -X PUT http://aistore:8080/v1/buckets/"$$MINIO_BUCKET"
+        curl -s -X PUT http://aistore:8080/v1/buckets/"$$MINIO_KNOWLEDGE_BUCKET"
+    logging: *default-logging
+
 volumes:
   postgres-data:
     external: true
@@ -330,6 +370,9 @@ volumes:
   backup-data:
     external: true
     name: ${LINKSENSE_BACKUP_VOLUME}
+  aistore-data:
+    external: true
+    name: ${LINKSENSE_AISTORE_VOLUME}
 
 networks:
   default:
@@ -339,3 +382,4 @@ networks:
     internal: true
   worker-egress:
     name: ${LINKSENSE_WORKER_EGRESS_NETWORK}
+
