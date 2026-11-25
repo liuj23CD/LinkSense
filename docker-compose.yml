@@ -47,6 +47,25 @@ services:
       retries: 20
       start_period: 5s
 
+  aistore:
+    image: nvidia/aistore:v5.2.0
+    restart: unless-stopped
+    command: ["proxy", "--ais-listen-port=8080", "--log-level=info"]
+    environment:
+      AIS_LOG_LEVEL: ${AISTORE_LOG_LEVEL:-info}
+    ports:
+      - "${AISTORE_BIND_ADDRESS:-127.0.0.1}:${AISTORE_PORT:-8080}:8080"
+    volumes:
+      - aistore-data:/var/lib/aistore
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - default
+
   storage-init:
     image: busybox:1.37
     restart: "no"
@@ -60,9 +79,9 @@ services:
         chown 1000:1000 "$$LINKSENSE_USER_DATA_ROOT"
         chmod 0770 "$$LINKSENSE_USER_DATA_ROOT"
     environment:
-      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}"
     volumes:
-      - "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}:${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      - "${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}:${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}"
 
   migrate:
     image: linksense-migrate:${LINKSENSE_IMAGE_TAG:-local}
@@ -122,7 +141,7 @@ services:
       CODEX_BIN: ${CODEX_BIN:-codex}
       LINKSENSE_RUNNER_MODE: controller
       LINKSENSE_CODEX_APP_SERVER_LISTEN: stdio://
-      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}"
       LINKSENSE_PYTHON_BASE_SITE_PACKAGES: /opt/linksense/runtime/python/lib/python3.12/site-packages
       LINKSENSE_NODE_BASE_PROJECT: /opt/linksense/runtime/node
       LINKSENSE_PYTHON_PACKAGE_INDEX_URL: ${LINKSENSE_PYTHON_PACKAGE_INDEX_URL:-https://pypi.org/simple/}
@@ -157,7 +176,7 @@ services:
       LINKSENSE_BROWSER_SESSION_LIMIT: ${LINKSENSE_BROWSER_SESSION_LIMIT:-2}
       LINKSENSE_MANAGED_BROWSER_ENABLED: ${LINKSENSE_MANAGED_BROWSER_ENABLED:-true}
     volumes:
-      - "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}:${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      - "${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}:${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}"
       - ${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}:${LINKSENSE_DOCKER_SOCKET_PATH:-/var/run/docker.sock}
     networks:
       - default
@@ -167,6 +186,8 @@ services:
         condition: service_completed_successfully
       runner-worker-image:
         condition: service_completed_successfully
+      aistore:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -225,8 +246,8 @@ services:
       LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION: ${LINKSENSE_UPLOAD_MAX_FILES_PER_CONVERSATION:-100}
       LINKSENSE_UPLOAD_ALLOWED_TYPES: ${LINKSENSE_UPLOAD_ALLOWED_TYPES}
       LINKSENSE_ARTIFACT_ALLOWED_TYPES: ${LINKSENSE_ARTIFACT_ALLOWED_TYPES:-}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-aistore}
+      MINIO_PORT: ${MINIO_PORT:-8080}
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
@@ -260,7 +281,7 @@ services:
       DOCLING_SERVE_API_KEY: ${DOCLING_SERVE_API_KEY}
       DOCLING_SERVE_TENANT_ID: ${DOCLING_SERVE_TENANT_ID:-linksense}
       LINKSENSE_DOCLING_DOCUMENT_TIMEOUT_SECONDS: ${LINKSENSE_DOCLING_DOCUMENT_TIMEOUT_SECONDS:-1800}
-      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      LINKSENSE_USER_DATA_ROOT: "${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}"
       LINKSENSE_RUNNER_URL: http://runner:4010
       LINKSENSE_RUNNER_SHARED_SECRET: ${LINKSENSE_RUNNER_SHARED_SECRET}
       LINKSENSE_TRUST_PROXY: ${LINKSENSE_TRUST_PROXY:-true}
@@ -277,7 +298,7 @@ services:
       TEAMS_TENANT_ID: ${TEAMS_TENANT_ID:-}
       TEAMS_CLIENT_ID: ${TEAMS_CLIENT_ID:-}
     volumes:
-      - "${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}:${LINKSENSE_USER_DATA_ROOT:-${PWD}/.data/users}"
+      - "${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}:${LINKSENSE_USER_DATA_ROOT:-/home/liujiang/git/LinkSense/.data/users}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -288,6 +309,8 @@ services:
       storage-init:
         condition: service_completed_successfully
       runner:
+        condition: service_healthy
+      aistore:
         condition: service_healthy
     healthcheck:
       test:
@@ -329,6 +352,7 @@ volumes:
   postgres-data:
   redis-data:
     name: ${LINKSENSE_REDIS_VOLUME:-linksense-redis}
+  aistore-data:
 
 networks:
   worker-control:
@@ -336,3 +360,4 @@ networks:
     internal: true
   worker-egress:
     name: ${LINKSENSE_WORKER_EGRESS_NETWORK:-linksense-worker-egress}
+
